@@ -1,0 +1,428 @@
+# PostgreSQL Migration - File Change Reference
+
+## Quick Reference: All Files Requiring Changes
+
+**Total Files to Modify: 42 files**
+**New Files to Create: 1 file**
+
+---
+
+## 🔴 CRITICAL - Must Change First (Priority 1)
+
+### Dependencies
+- **File:** [package.json](file:///c:/Users/ADMIN/fuck/Backend/package.json)
+  - **Changes:** Remove `mongoose`, add `pg`, `pg-hstore`, `sequelize`
+  - **Lines:** 15-22
+
+### Database Configuration
+- **File:** [config/database.js](file:///c:/Users/ADMIN/fuck/Backend/config/database.js)
+  - **Changes:** Complete rewrite - Replace Mongoose with Sequelize
+  - **Lines:** Entire file (16 lines)
+  - **Action:** Replace with Sequelize connection code
+
+### Main Application
+- **File:** [app.js](file:///c:/Users/ADMIN/fuck/Backend/app.js)
+  - **Changes:** Update imports, remove mongoose connection monitoring
+  - **Lines:** 6, 94-113
+  - **Action:** Change `mongoose` to `sequelize`, update connection logic
+
+---
+
+## 🟠 HIGH PRIORITY - Models (Priority 2)
+
+### All Model Files (11 files)
+**Location:** `Backend/Models/`
+
+1. **Admin.js** (39 lines)
+   - Convert Mongoose schema to Sequelize model
+   - Add auto-increment ID
+   - Update field types
+
+2. **Student.js** (105 lines)
+   - Convert schema with all validations
+   - Update ObjectId reference to integer foreign key
+   - Add email setter for lowercase
+
+3. **Teacher.js** (95 lines)
+   - Convert schema
+   - Handle subjects array field
+   - Update assignedClasses relationship
+
+4. **Class.js** (~40 lines estimated)
+   - Convert schema
+   - Set up for relationships
+
+5. **Attendance.js** (25 lines)
+   - Convert schema
+   - Update studentID reference
+
+6. **Marks.js** (38 lines)
+   - Convert schema
+   - Update enum values
+   - Update studentID reference
+
+7. **Homework.js** (~30 lines estimated)
+   - Convert schema
+   - Update relationships
+
+8. **Notice.js** (~25 lines estimated)
+   - Convert schema
+
+9. **Calendar.js** (~35 lines estimated)
+   - Convert schema
+
+10. **Timetable.js** (~45 lines estimated)
+    - Convert schema
+    - Update class relationships
+
+11. **Audit.js** (~50 lines estimated)
+    - Convert schema
+    - Handle JSONB for metadata
+
+### New Model File
+12. **associations.js** (NEW FILE)
+    - Create all model associations
+    - Define foreign keys
+    - Set up many-to-many relationships
+
+---
+
+## 🟡 MEDIUM PRIORITY - Middleware (Priority 3)
+
+### Authentication Middleware (3 files)
+**Location:** `Backend/Middleware/`
+
+1. **auth.js**
+   - **Changes:** Update Student model queries
+   - **Pattern:** `findById()` → `findByPk()`
+   - **Lines:** Wherever Student model is used
+
+2. **AdminAuth.js**
+   - **Changes:** Update Admin model queries
+   - **Pattern:** `findById()` → `findByPk()`
+   - **Lines:** Wherever Admin model is used
+
+3. **TeacherAuth.js**
+   - **Changes:** Update Teacher model queries
+   - **Pattern:** `findById()` → `findByPk()`
+   - **Lines:** Wherever Teacher model is used
+
+---
+
+## 🟢 NORMAL PRIORITY - Controllers (Priority 4)
+
+### Admin Controllers (10 files)
+**Location:** `Backend/Controller/Admin/`
+
+1. **AdminAuthController.js**
+   - Update: `findOne()`, `create()`, password hashing
+   - Add `where` clauses
+
+2. **StudentController.js**
+   - Update: All CRUD operations
+   - Add `where`, `include`, `attributes`
+   - Update pagination
+
+3. **TeacherController.js**
+   - Update: All CRUD operations
+   - Handle many-to-many relationships
+
+4. **ClassController.js**
+   - Update: CRUD operations
+   - Update relationships
+
+5. **AttendanceController.js**
+   - Update: Query patterns
+   - Add date filtering with Sequelize operators
+
+6. **MarksController.js**
+   - Update: Query patterns
+   - Add filtering and sorting
+
+7. **NoticeController.js**
+   - Update: CRUD operations
+
+8. **CalendarController.js**
+   - Update: CRUD operations
+   - Date range queries
+
+9. **DashboardController.js**
+   - Update: Aggregation queries
+   - Use Sequelize aggregate functions
+
+10. **AuditController.js**
+    - Update: Query patterns
+    - Handle JSONB fields
+
+### Student Controllers (7 files)
+**Location:** `Backend/Controller/Student/`
+
+1. **StudentAuthController.js** (280 lines)
+   - Update: Login, register, logout
+   - Change `findOne({ studentID })` → `findOne({ where: { studentID } })`
+   - Update password validation
+
+2. **AttendanceController.js**
+   - Update: Get attendance records
+   - Add date filtering
+
+3. **MarksController.js**
+   - Update: Get marks
+   - Add filtering by subject, exam type
+
+4. **HomeworkController.js**
+   - Update: Get homework
+   - Add class filtering
+
+5. **NoticeController.js**
+   - Update: Get notices
+
+6. **CalendarController.js**
+   - Update: Get calendar events
+
+7. **TimetableController.js**
+   - Update: Get timetable
+   - Add class relationships
+
+### Teacher Controllers (9 files)
+**Location:** `Backend/Controller/Teacher/`
+
+1. **teacherAuthController.js**
+   - Update: Login, register
+   - Similar to StudentAuthController
+
+2. **AttendanceController.js**
+   - Update: Mark attendance
+   - Get attendance reports
+
+3. **MarksController.js**
+   - Update: Add/update marks
+   - Get marks by class
+
+4. **HomeworkController.js**
+   - Update: Create/update homework
+   - Get homework by class
+
+5. **NoticeController.js**
+   - Update: Create notices
+
+6. **CalendarController.js**
+   - Update: Create events
+
+7. **TimetableController.js**
+   - Update: Create/update timetable
+
+8. **StudentController.js**
+   - Update: Get students by class
+
+9. **CalendarController.js**
+   - Update: Calendar operations
+
+---
+
+## 📋 Change Patterns Summary
+
+### Common Changes Across All Controllers
+
+#### 1. Import Changes
+```javascript
+// No change needed - models export the same way
+const Student = require('../../Models/Student');
+```
+
+#### 2. Find Operations
+```javascript
+// BEFORE
+Model.find({ field: value })
+Model.findOne({ field: value })
+Model.findById(id)
+
+// AFTER
+Model.findAll({ where: { field: value } })
+Model.findOne({ where: { field: value } })
+Model.findByPk(id)
+```
+
+#### 3. Create Operations
+```javascript
+// BEFORE & AFTER - Same!
+Model.create(data)
+```
+
+#### 4. Update Operations
+```javascript
+// BEFORE
+Model.findByIdAndUpdate(id, data, { new: true })
+
+// AFTER
+await Model.update(data, { where: { id } })
+const updated = await Model.findByPk(id)
+```
+
+#### 5. Delete Operations
+```javascript
+// BEFORE
+Model.findByIdAndDelete(id)
+
+// AFTER
+Model.destroy({ where: { id } })
+```
+
+#### 6. Populate/Include
+```javascript
+// BEFORE
+.populate('classId')
+
+// AFTER
+{ include: [{ model: Class, as: 'class' }] }
+```
+
+#### 7. Select/Attributes
+```javascript
+// BEFORE
+.select('-password')
+
+// AFTER
+{ attributes: { exclude: ['password'] } }
+```
+
+#### 8. Sort/Order
+```javascript
+// BEFORE
+.sort({ firstName: 1 })
+
+// AFTER
+{ order: [['firstName', 'ASC']] }
+```
+
+#### 9. Pagination
+```javascript
+// BEFORE
+.skip(20).limit(10)
+
+// AFTER
+{ offset: 20, limit: 10 }
+```
+
+---
+
+## 🎯 Implementation Order
+
+### Phase 1: Setup (Day 1)
+1. ✅ Install PostgreSQL
+2. ✅ Update `package.json`
+3. ✅ Install dependencies
+4. ✅ Create database
+5. ✅ Update `.env`
+6. ✅ Update `config/database.js`
+7. ✅ Update `app.js`
+
+### Phase 2: Models (Day 1-2)
+1. ✅ Convert `Admin.js` (simplest)
+2. ✅ Convert `Class.js`
+3. ✅ Convert `Student.js`
+4. ✅ Convert `Teacher.js`
+5. ✅ Convert `Attendance.js`
+6. ✅ Convert `Marks.js`
+7. ✅ Convert `Homework.js`
+8. ✅ Convert `Notice.js`
+9. ✅ Convert `Calendar.js`
+10. ✅ Convert `Timetable.js`
+11. ✅ Convert `Audit.js`
+12. ✅ Create `associations.js`
+
+### Phase 3: Middleware (Day 2)
+1. ✅ Update `auth.js`
+2. ✅ Update `AdminAuth.js`
+3. ✅ Update `TeacherAuth.js`
+
+### Phase 4: Controllers - Auth First (Day 2-3)
+1. ✅ Update `StudentAuthController.js`
+2. ✅ Update `teacherAuthController.js`
+3. ✅ Update `AdminAuthController.js`
+
+### Phase 5: Controllers - Student (Day 3)
+1. ✅ Update all Student controllers (7 files)
+
+### Phase 6: Controllers - Teacher (Day 3-4)
+1. ✅ Update all Teacher controllers (9 files)
+
+### Phase 7: Controllers - Admin (Day 4)
+1. ✅ Update all Admin controllers (10 files)
+
+### Phase 8: Testing (Day 4-5)
+1. ✅ Test all endpoints
+2. ✅ Verify relationships
+3. ✅ Performance testing
+
+---
+
+## 📊 Progress Tracking
+
+**Total Progress: 0/43 files**
+
+### Completed Files: 0
+- None yet
+
+### In Progress: 0
+- None yet
+
+### Remaining: 43
+- All files listed above
+
+---
+
+## 🔍 Testing Checklist
+
+After each controller update, test:
+
+- [ ] GET endpoints return data
+- [ ] POST endpoints create records
+- [ ] PUT/PATCH endpoints update records
+- [ ] DELETE endpoints remove records
+- [ ] Relationships load correctly
+- [ ] Pagination works
+- [ ] Sorting works
+- [ ] Filtering works
+- [ ] Authentication works
+- [ ] No SQL errors in console
+
+---
+
+## 💾 Backup Strategy
+
+Before starting each phase:
+```bash
+git add .
+git commit -m "Completed Phase X: [description]"
+```
+
+---
+
+## 🆘 Troubleshooting Guide
+
+### If you get errors:
+
+1. **"relation does not exist"**
+   - Run: `sequelize.sync({ force: true })` (WARNING: Deletes data!)
+   - Or create tables manually
+
+2. **"column does not exist"**
+   - Check model definition
+   - Verify column name matches
+
+3. **"foreign key constraint"**
+   - Check associations.js
+   - Verify foreign key fields exist
+
+4. **"authentication failed"**
+   - Check .env database credentials
+   - Verify PostgreSQL is running
+
+5. **"cannot find module"**
+   - Run: `pnpm install`
+   - Check import paths
+
+---
+
+**Use this as a checklist while implementing the migration!**

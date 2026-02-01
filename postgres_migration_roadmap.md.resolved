@@ -1,0 +1,961 @@
+# PostgreSQL Migration Roadmap
+## Complete Guide to Converting Your School Management Backend from MongoDB to PostgreSQL
+
+---
+
+## 📋 Executive Summary
+
+Your backend is a **School Management System** with:
+- **11 MongoDB Models**: Student, Teacher, Admin, Attendance, Marks, Homework, Notice, Calendar, Class, Timetable, Audit
+- **3 User Roles**: Students, Teachers, Admins
+- **26 Controllers** handling business logic
+- **24 Route files** for API endpoints
+- **Mongoose ODM** for MongoDB interactions
+
+This roadmap will guide you through converting this to PostgreSQL using **Sequelize ORM**.
+
+---
+
+## 🎯 Migration Strategy Overview
+
+### Phase 1: Setup & Dependencies (1-2 hours)
+- Install PostgreSQL and required npm packages
+- Configure database connection
+- Set up Sequelize CLI
+
+### Phase 2: Schema Migration (3-4 hours)
+- Convert Mongoose schemas to Sequelize models
+- Define relationships and associations
+- Create database migrations
+
+### Phase 3: Code Refactoring (4-6 hours)
+- Update all controllers to use Sequelize syntax
+- Modify query patterns
+- Update authentication logic
+
+### Phase 4: Testing & Validation (2-3 hours)
+- Test all API endpoints
+- Verify data integrity
+- Performance testing
+
+**Total Estimated Time: 10-15 hours**
+
+---
+
+## 📦 Part 1: Dependencies & Setup
+
+### 1.1 Install PostgreSQL Database
+
+**Windows Installation:**
+```bash
+# Download PostgreSQL from https://www.postgresql.org/download/windows/
+# Or use Chocolatey:
+choco install postgresql
+
+# Verify installation
+psql --version
+```
+
+### 1.2 Update package.json Dependencies
+
+**Remove:**
+```json
+"mongoose": "^8.18.0"
+```
+
+**Add:**
+```json
+"pg": "^8.11.3",
+"pg-hstore": "^2.3.4",
+"sequelize": "^6.35.2"
+```
+
+**Optional (for migrations):**
+```json
+"sequelize-cli": "^6.6.2"
+```
+
+### 1.3 Install Dependencies
+
+```bash
+cd Backend
+pnpm remove mongoose
+pnpm add pg pg-hstore sequelize
+pnpm add -D sequelize-cli
+```
+
+---
+
+## 🗄️ Part 2: Database Configuration
+
+### 2.1 Create PostgreSQL Database
+
+```sql
+-- Connect to PostgreSQL
+psql -U postgres
+
+-- Create database
+CREATE DATABASE school_management;
+
+-- Create user (optional)
+CREATE USER school_admin WITH PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE school_management TO school_admin;
+```
+
+### 2.2 Update Environment Variables
+
+Create/Update `.env` file:
+```env
+# Old MongoDB (remove or comment out)
+# MONGO_URL=mongodb://localhost:27017/school_management
+
+# New PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=school_management
+DB_USER=postgres
+DB_PASSWORD=your_password
+DB_DIALECT=postgres
+
+# Other existing variables
+BACKEND_PORT=3001
+JWT_SECRET=your_jwt_secret
+NODE_ENV=development
+```
+
+### 2.3 Create New Database Configuration
+
+**File: [config/database.js](file:///c:/Users/ADMIN/fuck/Backend/config/database.js)** (Complete Replacement)
+
+```javascript
+const { Sequelize } = require('sequelize');
+
+const sequelize = new Sequelize(
+  process.env.DB_NAME || 'school_management',
+  process.env.DB_USER || 'postgres',
+  process.env.DB_PASSWORD || '',
+  {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    dialect: 'postgres',
+    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    },
+    define: {
+      timestamps: true,
+      underscored: false,
+      freezeTableName: false
+    }
+  }
+);
+
+const connectDB = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('✅ PostgreSQL connected successfully');
+    
+    // Sync models in development (be careful in production!)
+    if (process.env.NODE_ENV === 'development') {
+      await sequelize.sync({ alter: false }); // Set to true to auto-update schema
+      console.log('✅ Database models synchronized');
+    }
+    
+    return true;
+  } catch (err) {
+    console.error('❌ PostgreSQL connection failed:', err.message);
+    console.log('🔄 Server will continue without database connection');
+    return false;
+  }
+};
+
+module.exports = connectDB;
+module.exports.sequelize = sequelize;
+```
+
+---
+
+## 🏗️ Part 3: Model Conversion
+
+### 3.1 Model Conversion Pattern
+
+**MongoDB (Mongoose) → PostgreSQL (Sequelize) Mapping:**
+
+| Mongoose | Sequelize |
+|----------|-----------|
+| `mongoose.Schema()` | `sequelize.define()` |
+| `type: String` | `DataTypes.STRING` |
+| `type: Number` | `DataTypes.INTEGER` / `DataTypes.FLOAT` |
+| `type: Date` | `DataTypes.DATE` |
+| `type: Boolean` | `DataTypes.BOOLEAN` |
+| `enum: [...]` | `DataTypes.ENUM(...)` |
+| `ref: 'Model'` | `belongsTo()` / `hasMany()` |
+| `timestamps: true` | Built-in with `timestamps: true` |
+| `unique: true` | `unique: true` |
+| `required: true` | `allowNull: false` |
+| `default: value` | `defaultValue: value` |
+
+### 3.2 Files to Convert (11 Models)
+
+All files in `Backend/Models/`:
+
+1. ✏️ **Student.js** - Main student model
+2. ✏️ **Teacher.js** - Teacher model
+3. ✏️ **Admin.js** - Admin model
+4. ✏️ **Attendance.js** - Attendance records
+5. ✏️ **Marks.js** - Student marks/grades
+6. ✏️ **Homework.js** - Homework assignments
+7. ✏️ **Notice.js** - Notice board
+8. ✏️ **Calendar.js** - Calendar events
+9. ✏️ **Class.js** - Class/section information
+10. ✏️ **Timetable.js** - Class timetables
+11. ✏️ **Audit.js** - Audit logs
+
+### 3.3 Example: Student Model Conversion
+
+**BEFORE (MongoDB/Mongoose):**
+```javascript
+const mongoose = require('mongoose');
+
+const studentSchema = new mongoose.Schema({
+    studentID: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true
+    },
+    classId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Class',
+        required: true
+    },
+    status: {
+        type: String,
+        enum: ['active', 'inactive'],
+        default: 'active'
+    }
+}, {
+    timestamps: true
+});
+
+const Student = mongoose.model('Student', studentSchema);
+module.exports = Student;
+```
+
+**AFTER (PostgreSQL/Sequelize):**
+```javascript
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
+
+const Student = sequelize.define('Student', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    studentID: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        unique: true,
+        validate: {
+            notEmpty: true
+        }
+    },
+    firstName: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+        validate: {
+            notEmpty: true
+        }
+    },
+    lastName: {
+        type: DataTypes.STRING(100),
+        defaultValue: ''
+    },
+    fathersName: {
+        type: DataTypes.STRING(100),
+        allowNull: false
+    },
+    mothersName: {
+        type: DataTypes.STRING(100),
+        allowNull: false
+    },
+    address: {
+        type: DataTypes.TEXT,
+        allowNull: false
+    },
+    classId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+            model: 'Classes',
+            key: 'id'
+        }
+    },
+    className: {
+        type: DataTypes.STRING(50),
+        allowNull: false
+    },
+    grade: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        validate: {
+            min: 1,
+            max: 12
+        }
+    },
+    section: {
+        type: DataTypes.STRING(10),
+        allowNull: false
+    },
+    email: {
+        type: DataTypes.STRING(255),
+        allowNull: false,
+        unique: true,
+        validate: {
+            isEmail: true
+        },
+        set(value) {
+            this.setDataValue('email', value.toLowerCase());
+        }
+    },
+    password: {
+        type: DataTypes.STRING(255),
+        allowNull: false,
+        validate: {
+            len: [6, 255]
+        }
+    },
+    phone: {
+        type: DataTypes.STRING(20),
+        defaultValue: ''
+    },
+    parentPhone: {
+        type: DataTypes.STRING(20),
+        defaultValue: ''
+    },
+    dateOfBirth: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+    },
+    enrollmentDate: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    },
+    status: {
+        type: DataTypes.ENUM('active', 'inactive'),
+        defaultValue: 'active'
+    },
+    lastLoginAt: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    }
+}, {
+    timestamps: true, // Adds createdAt and updatedAt
+    tableName: 'students',
+    indexes: [
+        {
+            unique: true,
+            fields: ['studentID']
+        },
+        {
+            unique: true,
+            fields: ['email']
+        }
+    ]
+});
+
+module.exports = Student;
+```
+
+**Key Changes:**
+- ✅ Added auto-incrementing `id` as primary key
+- ✅ Changed `type` to `DataTypes.*`
+- ✅ Changed `required: true` to `allowNull: false`
+- ✅ Changed `default` to `defaultValue`
+- ✅ Changed `trim` to validators
+- ✅ Changed `lowercase` to setter function
+- ✅ Changed ObjectId reference to INTEGER foreign key
+- ✅ Added explicit table name
+
+---
+
+## 🔗 Part 4: Model Associations
+
+### 4.1 Create Associations File
+
+**File: `Models/associations.js`** (NEW FILE)
+
+```javascript
+const Student = require('./Student');
+const Teacher = require('./Teacher');
+const Class = require('./Class');
+const Attendance = require('./Attendance');
+const Marks = require('./Marks');
+const Homework = require('./Homework');
+const Timetable = require('./Timetable');
+const Notice = require('./Notice');
+const Calendar = require('./Calendar');
+
+// Student - Class relationship
+Class.hasMany(Student, { foreignKey: 'classId', as: 'students' });
+Student.belongsTo(Class, { foreignKey: 'classId', as: 'class' });
+
+// Student - Attendance relationship
+Student.hasMany(Attendance, { foreignKey: 'studentID', sourceKey: 'studentID', as: 'attendances' });
+Attendance.belongsTo(Student, { foreignKey: 'studentID', targetKey: 'studentID', as: 'student' });
+
+// Student - Marks relationship
+Student.hasMany(Marks, { foreignKey: 'studentID', sourceKey: 'studentID', as: 'marks' });
+Marks.belongsTo(Student, { foreignKey: 'studentID', targetKey: 'studentID', as: 'student' });
+
+// Teacher - Class relationship (many-to-many)
+Teacher.belongsToMany(Class, { through: 'TeacherClasses', foreignKey: 'teacherId', as: 'classes' });
+Class.belongsToMany(Teacher, { through: 'TeacherClasses', foreignKey: 'classId', as: 'teachers' });
+
+// Class - Timetable relationship
+Class.hasMany(Timetable, { foreignKey: 'classId', as: 'timetables' });
+Timetable.belongsTo(Class, { foreignKey: 'classId', as: 'class' });
+
+// Class - Homework relationship
+Class.hasMany(Homework, { foreignKey: 'classId', as: 'homeworks' });
+Homework.belongsTo(Class, { foreignKey: 'classId', as: 'class' });
+
+module.exports = {
+    Student,
+    Teacher,
+    Class,
+    Attendance,
+    Marks,
+    Homework,
+    Timetable,
+    Notice,
+    Calendar
+};
+```
+
+### 4.2 Update app.js to Load Associations
+
+**File: `app.js`** - Add after database connection:
+
+```javascript
+// After connectDB()
+connectDB().then(connected => {
+  if (connected) {
+    console.log('✅ MongoDB connection initiated successfully');
+    
+    // NEW: Load model associations
+    require('./Models/associations');
+    console.log('✅ Model associations loaded');
+  }
+  // ...
+});
+```
+
+---
+
+## 🔄 Part 5: Controller Updates
+
+### 5.1 Query Pattern Changes
+
+**Common MongoDB → PostgreSQL Query Conversions:**
+
+| Operation | Mongoose | Sequelize |
+|-----------|----------|-----------|
+| **Find All** | `Model.find()` | `Model.findAll()` |
+| **Find One** | `Model.findOne({ field: value })` | `Model.findOne({ where: { field: value } })` |
+| **Find by ID** | `Model.findById(id)` | `Model.findByPk(id)` |
+| **Create** | `Model.create(data)` | `Model.create(data)` ✅ Same |
+| **Update** | `Model.findByIdAndUpdate(id, data)` | `Model.update(data, { where: { id } })` |
+| **Delete** | `Model.findByIdAndDelete(id)` | `Model.destroy({ where: { id } })` |
+| **Count** | `Model.countDocuments()` | `Model.count()` |
+| **Populate** | `.populate('field')` | `{ include: [{ model: Model }] }` |
+| **Select** | `.select('field1 field2')` | `{ attributes: ['field1', 'field2'] }` |
+| **Sort** | `.sort({ field: 1 })` | `{ order: [['field', 'ASC']] }` |
+| **Limit** | `.limit(10)` | `{ limit: 10 }` |
+| **Skip** | `.skip(20)` | `{ offset: 20 }` |
+
+### 5.2 Files Requiring Updates (26 Controllers)
+
+**Admin Controllers:**
+1. ✏️ `Controller/Admin/AdminAuthController.js`
+2. ✏️ `Controller/Admin/AttendanceController.js`
+3. ✏️ `Controller/Admin/AuditController.js`
+4. ✏️ `Controller/Admin/CalendarController.js`
+5. ✏️ `Controller/Admin/ClassController.js`
+6. ✏️ `Controller/Admin/DashboardController.js`
+7. ✏️ `Controller/Admin/MarksController.js`
+8. ✏️ `Controller/Admin/NoticeController.js`
+9. ✏️ `Controller/Admin/StudentController.js`
+10. ✏️ `Controller/Admin/TeacherController.js`
+
+**Student Controllers:**
+11. ✏️ `Controller/Student/AttendanceController.js`
+12. ✏️ `Controller/Student/CalendarController.js`
+13. ✏️ `Controller/Student/HomeworkController.js`
+14. ✏️ `Controller/Student/MarksController.js`
+15. ✏️ `Controller/Student/NoticeController.js`
+16. ✏️ `Controller/Student/StudentAuthController.js`
+17. ✏️ `Controller/Student/TimetableController.js`
+
+**Teacher Controllers:**
+18. ✏️ `Controller/Teacher/AttendanceController.js`
+19. ✏️ `Controller/Teacher/CalendarController.js`
+20. ✏️ `Controller/Teacher/HomeworkController.js`
+21. ✏️ `Controller/Teacher/MarksController.js`
+22. ✏️ `Controller/Teacher/NoticeController.js`
+23. ✏️ `Controller/Teacher/StudentController.js`
+24. ✏️ `Controller/Teacher/TimetableController.js`
+25. ✏️ `Controller/Teacher/teacherAuthController.js`
+
+### 5.3 Example: StudentAuthController Conversion
+
+**BEFORE (Mongoose):**
+```javascript
+const Student = require('../../Models/Student');
+
+// Login
+const login = async (req, res) => {
+    const { studentID, password } = req.body;
+    
+    const student = await Student.findOne({ studentID });
+    if (!student) {
+        return res.status(404).json({ message: 'Student not found' });
+    }
+    
+    // Password check...
+};
+
+// Get all students
+const getAllStudents = async (req, res) => {
+    const students = await Student.find({ status: 'active' })
+        .populate('classId')
+        .select('-password')
+        .sort({ firstName: 1 });
+    
+    res.json(students);
+};
+```
+
+**AFTER (Sequelize):**
+```javascript
+const Student = require('../../Models/Student');
+const Class = require('../../Models/Class');
+
+// Login
+const login = async (req, res) => {
+    const { studentID, password } = req.body;
+    
+    const student = await Student.findOne({ 
+        where: { studentID } 
+    });
+    
+    if (!student) {
+        return res.status(404).json({ message: 'Student not found' });
+    }
+    
+    // Password check...
+};
+
+// Get all students
+const getAllStudents = async (req, res) => {
+    const students = await Student.findAll({
+        where: { status: 'active' },
+        include: [{
+            model: Class,
+            as: 'class'
+        }],
+        attributes: { exclude: ['password'] },
+        order: [['firstName', 'ASC']]
+    });
+    
+    res.json(students);
+};
+```
+
+### 5.4 Common Controller Patterns to Update
+
+**Pattern 1: Find by custom field**
+```javascript
+// BEFORE
+const student = await Student.findOne({ studentID: '12345' });
+
+// AFTER
+const student = await Student.findOne({ where: { studentID: '12345' } });
+```
+
+**Pattern 2: Update document**
+```javascript
+// BEFORE
+const updated = await Student.findByIdAndUpdate(
+    id, 
+    { firstName: 'John' }, 
+    { new: true }
+);
+
+// AFTER
+await Student.update(
+    { firstName: 'John' },
+    { where: { id } }
+);
+const updated = await Student.findByPk(id);
+```
+
+**Pattern 3: Delete document**
+```javascript
+// BEFORE
+await Student.findByIdAndDelete(id);
+
+// AFTER
+await Student.destroy({ where: { id } });
+```
+
+**Pattern 4: Complex queries**
+```javascript
+// BEFORE
+const marks = await Marks.find({
+    studentID: '12345',
+    examType: 'Final'
+}).sort({ date: -1 });
+
+// AFTER
+const marks = await Marks.findAll({
+    where: {
+        studentID: '12345',
+        examType: 'Final'
+    },
+    order: [['date', 'DESC']]
+});
+```
+
+---
+
+## 🔐 Part 6: Authentication Updates
+
+### 6.1 Middleware Updates
+
+**Files to Update:**
+- ✏️ `Middleware/auth.js`
+- ✏️ `Middleware/AdminAuth.js`
+- ✏️ `Middleware/TeacherAuth.js`
+
+**Pattern Change:**
+```javascript
+// BEFORE
+const student = await Student.findById(decoded.id).select('-password');
+
+// AFTER
+const student = await Student.findByPk(decoded.id, {
+    attributes: { exclude: ['password'] }
+});
+```
+
+---
+
+## 📝 Part 7: Complete File Checklist
+
+### Files to Modify (Total: 42 files)
+
+#### Core Configuration (2 files)
+- [x] ✏️ `config/database.js` - Complete rewrite
+- [x] ✏️ `app.js` - Update imports and connection logic
+- [ ] ✏️ `package.json` - Update dependencies
+
+#### Models (11 files + 1 new)
+- [ ] ✏️ `Models/Student.js`
+- [ ] ✏️ `Models/Teacher.js`
+- [ ] ✏️ `Models/Admin.js`
+- [ ] ✏️ `Models/Attendance.js`
+- [ ] ✏️ `Models/Marks.js`
+- [ ] ✏️ `Models/Homework.js`
+- [ ] ✏️ `Models/Notice.js`
+- [ ] ✏️ `Models/Calendar.js`
+- [ ] ✏️ `Models/Class.js`
+- [ ] ✏️ `Models/Timetable.js`
+- [ ] ✏️ `Models/Audit.js`
+- [ ] 🆕 `Models/associations.js` - NEW FILE
+
+#### Middleware (3 files)
+- [ ] ✏️ `Middleware/auth.js`
+- [ ] ✏️ `Middleware/AdminAuth.js`
+- [ ] ✏️ `Middleware/TeacherAuth.js`
+
+#### Controllers (26 files)
+- [ ] ✏️ All Admin controllers (10 files)
+- [ ] ✏️ All Student controllers (7 files)
+- [ ] ✏️ All Teacher controllers (9 files)
+
+---
+
+## 🚀 Part 8: Step-by-Step Implementation Guide
+
+### Step 1: Backup Everything
+```bash
+# Create backup
+cd c:\Users\ADMIN\fuck
+git add .
+git commit -m "Backup before PostgreSQL migration"
+git branch mongodb-backup
+```
+
+### Step 2: Install PostgreSQL
+1. Download from https://www.postgresql.org/download/windows/
+2. Install with default settings
+3. Remember the password you set for `postgres` user
+4. Verify: `psql --version`
+
+### Step 3: Create Database
+```bash
+# Open PowerShell as Administrator
+psql -U postgres
+
+# In PostgreSQL prompt:
+CREATE DATABASE school_management;
+\q
+```
+
+### Step 4: Update Dependencies
+```bash
+cd Backend
+pnpm remove mongoose
+pnpm add pg pg-hstore sequelize
+pnpm add -D sequelize-cli
+```
+
+### Step 5: Update Configuration Files
+
+1. **Update `.env`:**
+   - Add PostgreSQL connection details
+   - Keep MongoDB URL commented for reference
+
+2. **Replace `config/database.js`:**
+   - Use the Sequelize configuration provided above
+
+3. **Update `app.js`:**
+   - Change `mongoose` imports to `sequelize`
+   - Update connection logic
+   - Add associations loading
+
+### Step 6: Convert Models (One by One)
+
+**Recommended Order:**
+1. Start with `Admin.js` (simplest)
+2. Then `Class.js`
+3. Then `Student.js` and `Teacher.js`
+4. Then remaining models
+
+**For each model:**
+1. Open the model file
+2. Replace `mongoose` with `sequelize`
+3. Convert schema to Sequelize format
+4. Test by running the app
+
+### Step 7: Create Associations
+1. Create `Models/associations.js`
+2. Define all relationships
+3. Load in `app.js`
+
+### Step 8: Update Controllers (Systematically)
+
+**Recommended Order:**
+1. Start with Auth controllers
+2. Then simple CRUD controllers
+3. Then complex query controllers
+
+**For each controller:**
+1. Update all `find()` to `findAll()`
+2. Add `where` clauses
+3. Update `populate` to `include`
+4. Test each endpoint
+
+### Step 9: Update Middleware
+1. Update auth middleware
+2. Test authentication flow
+
+### Step 10: Testing
+1. Test each API endpoint
+2. Verify data integrity
+3. Check relationships
+4. Performance testing
+
+---
+
+## ⚠️ Common Pitfalls & Solutions
+
+### Issue 1: ObjectId vs Integer IDs
+**Problem:** MongoDB uses ObjectId, PostgreSQL uses integers
+**Solution:** 
+- Use auto-incrementing integers for primary keys
+- Update all ID references in queries
+- Update frontend if it expects ObjectId format
+
+### Issue 2: Timestamps
+**Problem:** Field names might differ
+**Solution:**
+- Sequelize uses `createdAt` and `updatedAt` by default
+- Mongoose uses `createdAt` and `updatedAt` too
+- Should be compatible, but verify
+
+### Issue 3: Nested Objects
+**Problem:** MongoDB allows nested objects, PostgreSQL doesn't
+**Solution:**
+- Use JSONB column type for complex nested data
+- Or normalize into separate tables
+
+### Issue 4: Array Fields
+**Problem:** MongoDB arrays vs PostgreSQL arrays
+**Solution:**
+- Use `DataTypes.ARRAY(DataTypes.STRING)` for simple arrays
+- Or create junction tables for complex relationships
+
+### Issue 5: Case Sensitivity
+**Problem:** PostgreSQL is case-sensitive for table/column names
+**Solution:**
+- Use lowercase table names
+- Use camelCase for column names
+- Be consistent
+
+---
+
+## 📊 Part 9: Data Migration (Optional)
+
+If you have existing MongoDB data to migrate:
+
+### Option 1: Manual Export/Import
+```bash
+# Export from MongoDB
+mongoexport --db school_management --collection students --out students.json
+
+# Write a Node.js script to import to PostgreSQL
+node scripts/migrate-data.js
+```
+
+### Option 2: Migration Script
+Create `scripts/migrate-data.js`:
+```javascript
+const mongoose = require('mongoose');
+const { sequelize } = require('../config/database');
+const MongoStudent = require('../Models/Student'); // Old model
+const PgStudent = require('../Models/Student'); // New model
+
+async function migrate() {
+    // Connect to both databases
+    await mongoose.connect(process.env.MONGO_URL);
+    await sequelize.authenticate();
+    
+    // Get all students from MongoDB
+    const students = await MongoStudent.find();
+    
+    // Insert into PostgreSQL
+    for (const student of students) {
+        await PgStudent.create({
+            studentID: student.studentID,
+            firstName: student.firstName,
+            // ... map all fields
+        });
+    }
+    
+    console.log('Migration complete!');
+}
+
+migrate();
+```
+
+---
+
+## ✅ Part 10: Verification Checklist
+
+After migration, verify:
+
+- [ ] PostgreSQL database is created
+- [ ] All tables are created with correct schema
+- [ ] All relationships/foreign keys are set up
+- [ ] Sample data can be inserted
+- [ ] Login works for all user types
+- [ ] CRUD operations work for all models
+- [ ] Queries return correct data
+- [ ] Pagination works
+- [ ] Sorting works
+- [ ] Filtering works
+- [ ] Authentication middleware works
+- [ ] No console errors
+- [ ] API response times are acceptable
+
+---
+
+## 🎓 Learning Resources
+
+- **Sequelize Documentation:** https://sequelize.org/docs/v6/
+- **PostgreSQL Tutorial:** https://www.postgresqltutorial.com/
+- **Sequelize vs Mongoose:** https://blog.logrocket.com/comparing-sequelize-mongoose-node-orms/
+
+---
+
+## 💡 Pro Tips
+
+1. **Start Small:** Convert one model and controller at a time
+2. **Test Frequently:** Test after each change
+3. **Use Transactions:** For complex operations, use Sequelize transactions
+4. **Indexing:** Add indexes for frequently queried fields
+5. **Connection Pooling:** Already configured in the database.js
+6. **Error Handling:** PostgreSQL errors are different from MongoDB
+7. **Logging:** Enable SQL logging during development
+8. **Migrations:** Use Sequelize migrations for schema changes in production
+
+---
+
+## 🆘 Need Help?
+
+If you encounter issues:
+
+1. **Check Sequelize Logs:** Enable logging in database config
+2. **PostgreSQL Logs:** Check PostgreSQL error logs
+3. **Common Errors:**
+   - Connection refused → Check PostgreSQL is running
+   - Authentication failed → Check username/password
+   - Table doesn't exist → Run `sequelize.sync()`
+   - Foreign key constraint → Check associations
+
+---
+
+## 📞 Questions to Answer Before Starting
+
+Before I can help you implement this, please answer:
+
+1. **Do you have existing data in MongoDB that needs to be migrated?**
+   - Yes → We'll need a data migration script
+   - No → We can start fresh
+
+2. **What's your PostgreSQL experience level?**
+   - Beginner → I'll provide more detailed explanations
+   - Intermediate → We can move faster
+   - Expert → Minimal guidance needed
+
+3. **Do you want me to convert all files for you, or guide you through doing it yourself?**
+   - Convert for me → I'll do the conversion
+   - Guide me → I'll provide step-by-step instructions
+   - Hybrid → I'll convert some, you do others
+
+4. **Timeline: When do you need this completed?**
+   - This helps me prioritize what to focus on
+
+5. **Testing: Do you have a test suite?**
+   - This will help verify the migration
+
+---
+
+**Ready to start? Let me know your answers to the questions above, and we'll begin the migration!** 🚀
